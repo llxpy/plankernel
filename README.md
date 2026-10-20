@@ -24,6 +24,7 @@
 - [完整性保护](#完整性保护)
 - [三态机与降级策略](#三态机与降级策略)
 - [接口设计](#接口设计)
+- [MCP：本地 Agent 接入](#mcp本地-agent-接入)
 - [快速开始](#快速开始)
 - [打包为单文件 exe](#打包为单文件-exe)
 - [测试](#测试)
@@ -47,6 +48,7 @@
 | 多级解析降级 | PDF 三级、DOCX 两级、XLSX 结构表化，失败不中断批量任务 |
 | 跨进程锁 | Windows `msvcrt.locking(LK_NBLCK)` 非阻塞排他 + PID 僵尸锁检测 |
 | 桌面交付 | pywebview + Edge WebView2 原生窗口，后端随机 loopback 端口内嵌启动 |
+| Agent 接入 | MCP 服务（Streamable HTTP 端口 + stdio），10 个检索/索引/完整性工具 |
 
 ---
 
@@ -327,6 +329,72 @@ state_b64    = AES-256-GCM(state_key, nonce, canonical(state_json))
 
 ---
 
+## MCP：本地 Agent 接入
+
+盘枢内置一个 **MCP（Model Context Protocol）服务端**，让 Claude Desktop、Cursor、自研 Agent 直接调用本地知识库。进程内共享同一个工作区注册表与检索引擎，无需额外部署。
+
+### 两种接入形态
+
+| 形态 | 端点 / 命令 | 适用 |
+|---|---|---|
+| Streamable HTTP | `http://127.0.0.1:7868/mcp`（默认端口，占用时自动顺延） | 支持 HTTP 传输的 Agent、远程本机调用 |
+| stdio | `Panhub.exe mcp` | Claude Desktop、Cursor 等以子进程启动的客户端 |
+
+- 端口仅绑定 `127.0.0.1`，不对外网开放；可用 `--mcp-port 0` 关闭 HTTP 端口。
+- 传输为**无状态 + JSON 响应**模式：Agent 无需维护会话，进程退出不等待空闲会话。
+- 启动日志会打印 `MCP LISTENING port=7868`；UI「设置」页也会显示当前端点与工具清单。
+
+### 工具清单
+
+| 工具 | 说明 |
+|---|---|
+| `list_workspaces` | 列出已打开工作区及状态/统计 |
+| `open_workspace` | 打开本地目录作为工作区（锚点校验 + 加锁） |
+| `workspace_status` | 查询三态、原因、文档/切片统计 |
+| `list_documents` | 文档列表（≤500 条，含索引状态） |
+| `scan_documents` | 增量扫描目录 |
+| `index_documents` | 解析 + 切块 + 建 FTS5 索引（可指定 doc_ids） |
+| `search` | 双路 BM25 检索（query/topk/use_pivot），返回片段、来源、融合分数 |
+| `verify_integrity` | Merkle 链校验，失败返回首个坏 seq/scope |
+| `get_budget` | LLM 预算使用情况 |
+| `delete_document` | 删除文档及切片（仅 Normal 状态） |
+
+### 客户端配置示例
+
+Claude Desktop（`claude_desktop_config.json`，stdio）：
+
+```json
+{
+  "mcpServers": {
+    "panhub": {
+      "command": "E:\\path\\to\\Panhub.exe",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+HTTP 客户端（JSON 配置示意）：
+
+```json
+{
+  "mcpServers": {
+    "panhub": {
+      "url": "http://127.0.0.1:7868/mcp"
+    }
+  }
+}
+```
+
+### 安全边界
+
+- MCP 与 UI 共用同一进程、同一工作区锁；工作区未打开时需先 `open_workspace`。
+- 写类工具（`scan/index/delete`）在 Detached / Tampered 状态下会被拒绝。
+- HTTP 传输启用 Host 校验（仅允许 `127.0.0.1:*` / `localhost:*`），抵御 DNS rebinding。
+- 与 UI 并发写入同一工作区时，通过工作区级写锁串行化，不会打破索引一致性。
+
+---
+
 ## 快速开始
 
 ### 直接使用（单文件 exe）
@@ -341,8 +409,9 @@ dist\Panhub.exe
 
 ```powershell
 uv sync
-uv run python -m app desktop                # 本地窗口
+uv run python -m app desktop                # 本地窗口（默认，MCP 端口 7868）
 uv run python -m app server --port 7869     # 无界面后端
+uv run python -m app mcp                    # stdio MCP 服务（供 Agent 拉起）
 
 cd frontend
 npm install
@@ -387,6 +456,7 @@ uv run python -m pytest tests/test_core.py -v
 - 扫描 + 索引 + 中文检索端到端
 - Merkle 链校验与篡改检测
 - query 归一化与 FTS5 MATCH 构造
+- MCP 工具端到端（打开/索引/检索/校验）与 HTTP 握手（initialize）
 
 前端构建产物与打包 exe 均做过实际冒烟：初始化 → 扫描 → 索引 → 检索命中 → 链校验通过。
 
@@ -430,6 +500,7 @@ uv run python -m pytest tests/test_core.py -v
 - pivot 缓存、LLM OpenAI 协议适配、预算桶与自动降级
 - Merkle 链 + AES-256-GCM、篡改检测、Tampered 只读拦截
 - 浅色「宣纸」中台 UI、单文件 exe 桌面窗口
+- MCP 服务端（Streamable HTTP 7868 + stdio），10 个 Agent 工具
 
 **规划中**
 
@@ -457,6 +528,7 @@ panhub-kbengine/
 │  ├─ retrieval/         # 归一化 / 双路 / 融合
 │  ├─ integrity/         # Merkle 链 + GCM
 │  ├─ llm/               # Provider + 预算
+│  ├─ mcp/               # MCP 服务端（工具 + HTTP/stdio 传输）
 │  ├─ storage/           # SQLite 连接与迁移
 │  └─ security/          # 预留
 ├─ frontend/             # React + Vite（宣纸主题）

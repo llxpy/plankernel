@@ -35,6 +35,13 @@ def readyz() -> dict:
     }
 
 
+@router.get("/mcp")
+def mcp_status() -> dict:
+    from app.mcp.server import mcp_info
+
+    return mcp_info()
+
+
 # ---------- workspaces ----------
 class InitBody(BaseModel):
     root_path: str

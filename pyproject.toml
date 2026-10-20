@@ -24,6 +24,7 @@ dependencies = [
     "pywebview>=5.3",
     "pythonnet>=3.0; sys_platform == 'win32'",
     "tomli>=2.0; python_version < '3.11'",
+    "mcp>=1.10",
 ]
 
 [dependency-groups]

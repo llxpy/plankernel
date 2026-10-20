@@ -104,32 +104,33 @@ def retrieve(ws: Workspace, query: str, topk: int | None = None, alpha: float | 
                     cfg.rerank_topk) if pivots else []
 
     n1, n2 = _minmax([s for _, s in r1]), _minmax([s for _, s in r2])
-    with conn:
-        for rank, (cid, s) in enumerate(r1):
-            conn.execute(
-                "INSERT OR REPLACE INTO retrieval_score(query_run_id,chunk_id,route,rank,raw_score,norm_score,created_at)"
-                " VALUES (?,?,?,?,?,?,?)", (run_id, cid, "original", rank, s, n1.get(s, 0), now))
-        for rank, (cid, s) in enumerate(r2):
-            conn.execute(
-                "INSERT OR REPLACE INTO retrieval_score(query_run_id,chunk_id,route,rank,raw_score,norm_score,created_at)"
-                " VALUES (?,?,?,?,?,?,?)", (run_id, cid, "pivot", rank, s, n2.get(s, 0), now))
+    with ws.write_lock:
+        with conn:
+            for rank, (cid, s) in enumerate(r1):
+                conn.execute(
+                    "INSERT OR REPLACE INTO retrieval_score(query_run_id,chunk_id,route,rank,raw_score,norm_score,created_at)"
+                    " VALUES (?,?,?,?,?,?,?)", (run_id, cid, "original", rank, s, n1.get(s, 0), now))
+            for rank, (cid, s) in enumerate(r2):
+                conn.execute(
+                    "INSERT OR REPLACE INTO retrieval_score(query_run_id,chunk_id,route,rank,raw_score,norm_score,created_at)"
+                    " VALUES (?,?,?,?,?,?,?)", (run_id, cid, "pivot", rank, s, n2.get(s, 0), now))
 
-        fused: dict[int, float] = {}
-        if cfg.fusion == "rrf":
-            k = cfg.rrf_k
-            for rank, (cid, _) in enumerate(r1):
-                fused[cid] = fused.get(cid, 0) + 1 / (k + rank + 1)
-            for rank, (cid, _) in enumerate(r2):
-                fused[cid] = fused.get(cid, 0) + 1 / (k + rank + 1)
-        else:
-            for cid, s in r1:
-                fused[cid] = alpha * n1.get(s, 0)
-            for cid, s in r2:
-                fused[cid] = fused.get(cid, 0) + (1 - alpha) * n2.get(s, 0)
-        for rank, (cid, fs) in enumerate(sorted(fused.items(), key=lambda x: -x[1])):
-            conn.execute(
-                "INSERT OR REPLACE INTO retrieval_score(query_run_id,chunk_id,route,rank,raw_score,norm_score,created_at)"
-                " VALUES (?,?,?,?,?,?,?)", (run_id, cid, "fused", rank, 0.0, fs, now))
+            fused: dict[int, float] = {}
+            if cfg.fusion == "rrf":
+                k = cfg.rrf_k
+                for rank, (cid, _) in enumerate(r1):
+                    fused[cid] = fused.get(cid, 0) + 1 / (k + rank + 1)
+                for rank, (cid, _) in enumerate(r2):
+                    fused[cid] = fused.get(cid, 0) + 1 / (k + rank + 1)
+            else:
+                for cid, s in r1:
+                    fused[cid] = alpha * n1.get(s, 0)
+                for cid, s in r2:
+                    fused[cid] = fused.get(cid, 0) + (1 - alpha) * n2.get(s, 0)
+            for rank, (cid, fs) in enumerate(sorted(fused.items(), key=lambda x: -x[1])):
+                conn.execute(
+                    "INSERT OR REPLACE INTO retrieval_score(query_run_id,chunk_id,route,rank,raw_score,norm_score,created_at)"
+                    " VALUES (?,?,?,?,?,?,?)", (run_id, cid, "fused", rank, 0.0, fs, now))
 
     rows = conn.execute(
         "SELECT chunk_id, fused FROM retrieval_score WHERE query_run_id=? AND route='fused' "

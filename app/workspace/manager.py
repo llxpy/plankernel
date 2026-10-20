@@ -1,6 +1,7 @@
 """Workspace 运行时对象：锚点校验 + 目录锁 + 双库连接 + 三态机。"""
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
@@ -22,6 +23,7 @@ class Workspace:
         self.chain_db = chain_db
         self.state = state
         self.chain = chain
+        self.write_lock = threading.RLock()
 
     @property
     def workspace_id(self) -> str:

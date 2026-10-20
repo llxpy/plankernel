@@ -1,6 +1,7 @@
 """FTS5 索引维护：文档扫描、增量入库、切片写入、触发器同步。"""
 from __future__ import annotations
 
+import functools
 import hashlib
 import time
 from pathlib import Path
@@ -12,6 +13,18 @@ from app.workspace.manager import Workspace
 SUPPORTED = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".log", ".csv"}
 
 
+def _with_write_lock(fn):
+    """串行化同一工作区的写路径，兼容 UI 与 MCP 并发调用。"""
+
+    @functools.wraps(fn)
+    def wrapper(ws: Workspace, *args, **kwargs):
+        with ws.write_lock:
+            return fn(ws, *args, **kwargs)
+
+    return wrapper
+
+
+@_with_write_lock
 def scan_documents(ws: Workspace, force: bool = False) -> dict:
     """扫描工作区目录，按 (rel_path, content_sha256) 增量登记 docs。"""
     conn = ws.db.connect()
@@ -52,6 +65,7 @@ def scan_documents(ws: Workspace, force: bool = False) -> dict:
     return {"added": added, "updated": updated, "skipped": skipped}
 
 
+@_with_write_lock
 def index_documents(ws: Workspace, doc_ids: list[int] | None = None) -> dict:
     """解析 → 切块 → 写 chunks + FTS5（触发器同步）。"""
     conn = ws.db.connect()
@@ -107,6 +121,7 @@ def index_documents(ws: Workspace, doc_ids: list[int] | None = None) -> dict:
     return {"indexed": ok, "failed": failed, "errors": errors}
 
 
+@_with_write_lock
 def delete_document(ws: Workspace, doc_id: int) -> None:
     conn = ws.db.connect()
     conn.execute("DELETE FROM chunks WHERE doc_id=?", (doc_id,))

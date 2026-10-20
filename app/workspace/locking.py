@@ -55,16 +55,36 @@ def _read_holder(lockf: Path) -> dict:
     return {}
 
 
+def _pid_alive(pid: int) -> bool:
+    """安全检测 PID 是否存在。Windows 上禁止用 os.kill(pid, 0)（会挂起 SIGINT）。"""
+    if sys.platform == "win32":
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def _holder_is_stale(holder: dict) -> bool:
     pid = holder.get("pid")
     if not pid:
         return False
-    try:
-        os.kill(int(pid), 0)
-        return False
-    except OSError:
-        pass
-    return True
+    return not _pid_alive(int(pid))
 
 
 def acquire_lock(hidden: Path, workspace_id: str, force: bool = False) -> DirLock:

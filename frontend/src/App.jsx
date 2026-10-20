@@ -412,10 +412,14 @@ function SettingsView({ ws, detail, reload }) {
   const [model, setModel] = useState(llmCfg.model || "gpt-4o-mini");
   const [apiKey, setApiKey] = useState("");
   const [test, setTest] = useState(null);
+  const [mcp, setMcp] = useState(null);
   useEffect(() => {
     setEndpoint(llmCfg.endpoint || "");
     setModel(llmCfg.model || "gpt-4o-mini");
   }, [llmCfg.endpoint, llmCfg.model]);
+  useEffect(() => {
+    api.mcp().then(setMcp).catch(() => setMcp(null));
+  }, []);
   const doTest = async () => {
     setTest("testing");
     try {
@@ -456,6 +460,31 @@ function SettingsView({ ws, detail, reload }) {
         联网只发生在用户明确配置的 LLM 端点，且只发送 query 与候选合并片段；原始文档与切片正文默认不出机。
         明文密钥禁止写入 <code>workspace.toml</code>。
       </p>
+
+      <div className="mcp-card">
+        <div className="mcp-head">
+          <h3>MCP · 本地 Agent 接口</h3>
+          <span className={`badge ${mcp?.enabled ? "badge-ok" : "badge-warn"}`}>
+            <i className="dot" />
+            {mcp?.enabled ? "端口已开放" : "stdio 模式"}
+          </span>
+        </div>
+        {mcp?.enabled ? (
+          <>
+            <p className="hint">Streamable HTTP 端点（仅本机回环）：</p>
+            <code className="mcp-url">{mcp.url}</code>
+          </>
+        ) : (
+          <p className="hint">当前未开放 HTTP 端口，可使用 stdio 方式接入：</p>
+        )}
+        <p className="hint" style={{ marginTop: 10 }}>stdio 启动命令：</p>
+        <code className="mcp-url">{mcp?.stdio_command || "Panhub.exe mcp"}</code>
+        <div className="mcp-tools">
+          {(mcp?.tools || []).map((t) => (
+            <span key={t} className="mcp-tool">{t}</span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -24,8 +24,10 @@ hiddenimports = [
     "multipart", "python_multipart",
     "webview", "webview.platforms.edgechromium", "webview.platforms.winforms",
     "clr_loader", "pythonnet",
+    "starlette", "sse_starlette",
 ]
 hiddenimports += collect_submodules("webview")
+hiddenimports += collect_submodules("mcp", filter=lambda name: not name.startswith("mcp.cli"))
 
 a = Analysis(
     ["app/__main__.py"],

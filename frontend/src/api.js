@@ -33,5 +33,6 @@ export const api = {
     req(`/workspaces/${id}/retrieval`, { method: "POST", body: JSON.stringify(body) }),
   budget: (id) => req(`/workspaces/${id}/budget`),
   chain: (id) => req(`/workspaces/${id}/chain`),
+  mcp: () => req("/mcp"),
   llmTest: (body) => req("/llm/test", { method: "POST", body: JSON.stringify(body) }),
 };

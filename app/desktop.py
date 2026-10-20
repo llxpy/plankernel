@@ -45,11 +45,25 @@ def _message_box(text: str, title: str = "盘枢启动失败") -> None:
         pass
 
 
-def run_desktop(debug: bool = False) -> int:
+def run_desktop(debug: bool = False, mcp_port: int = 7868) -> int:
     import uvicorn
 
     from app.deps import registry
     from app.main import create_app
+
+    mcp_server = None
+    mcp_thread = None
+    if mcp_port > 0:
+        try:
+            from app.mcp.http import start_mcp_http
+
+            mcp_server, mcp_thread, actual_port = start_mcp_http(mcp_port)
+            os.environ["PANHUB_MCP_PORT"] = str(actual_port)
+            print(f"MCP LISTENING port={actual_port}", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            _log_exception(exc)
+            os.environ["PANHUB_MCP_PORT"] = "0"
+            print(f"MCP disabled: {exc}", flush=True)
 
     port = _free_port()
     config = uvicorn.Config(create_app(), host="127.0.0.1", port=port, log_level="warning")
@@ -84,13 +98,17 @@ def run_desktop(debug: bool = False) -> int:
 
     server.should_exit = True
     thread.join(timeout=5)
+    if mcp_server is not None:
+        mcp_server.should_exit = True
+    if mcp_thread is not None:
+        mcp_thread.join(timeout=5)
     registry.shutdown()
     return 0
 
 
-def main(debug: bool = False) -> int:
+def main(debug: bool = False, mcp_port: int = 7868) -> int:
     try:
-        return run_desktop(debug=debug)
+        return run_desktop(debug=debug, mcp_port=mcp_port)
     except BaseException as exc:  # noqa: BLE001
         _log_exception(exc)
         _message_box(
