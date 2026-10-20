@@ -439,6 +439,8 @@ uv run pyinstaller pyinstaller.spec --noconfirm --clean
 
 - 单文件启动时解压到临时目录，首次启动约 3–8 秒（待实测）。
 - 运行需要 Microsoft Edge WebView2 Runtime（Win10 1909+/Win11 通常自带）。
+- GUI 模式无控制台，运行日志写入 `%LOCALAPPDATA%\Panhub\logs\console.log`，
+  崩溃堆栈写入同目录 `desktop.log`。
 - PyInstaller 不支持交叉编译，必须在 Windows 目标机打包。
 
 ---

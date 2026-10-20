@@ -24,6 +24,27 @@ def _app_data_dir() -> Path:
     return d
 
 
+def _ensure_streams() -> None:
+    """GUI 模式（PyInstaller console=False）下 sys.stdout/stderr 为 None。
+
+    uvicorn 默认日志格式化器会读取 sys.stdout.isatty()，必须先把流重定向到文件。
+    """
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    stream = None
+    try:
+        stream = (_app_data_dir() / "console.log").open("a", encoding="utf-8", buffering=1)
+    except OSError:
+        try:
+            stream = open(os.devnull, "w", encoding="utf-8")
+        except OSError:
+            return
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
+
+
 def _log_exception(exc: BaseException) -> None:
     try:
         log = _app_data_dir() / "desktop.log"
@@ -46,17 +67,18 @@ def _message_box(text: str, title: str = "盘枢启动失败") -> None:
 
 
 def run_desktop(debug: bool = False, mcp_port: int = 7868) -> int:
+    _ensure_streams()
+
     import uvicorn
 
     from app.deps import registry
     from app.main import create_app
+    from app.mcp.http import start_mcp_http
 
     mcp_server = None
     mcp_thread = None
     if mcp_port > 0:
         try:
-            from app.mcp.http import start_mcp_http
-
             mcp_server, mcp_thread, actual_port = start_mcp_http(mcp_port)
             os.environ["PANHUB_MCP_PORT"] = str(actual_port)
             print(f"MCP LISTENING port={actual_port}", flush=True)
@@ -66,7 +88,9 @@ def run_desktop(debug: bool = False, mcp_port: int = 7868) -> int:
             print(f"MCP disabled: {exc}", flush=True)
 
     port = _free_port()
-    config = uvicorn.Config(create_app(), host="127.0.0.1", port=port, log_level="warning")
+    config = uvicorn.Config(
+        create_app(), host="127.0.0.1", port=port, log_level="warning", log_config=None
+    )
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True, name="panhub-uvicorn")
     thread.start()

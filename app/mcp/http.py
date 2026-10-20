@@ -47,7 +47,9 @@ def start_mcp_http(preferred_port: int = 7868, host: str = "127.0.0.1"):
     port = pick_mcp_port(preferred_port, host)
     # 无状态模式：每个请求独立处理，Agent 无需维护会话，进程退出不等待空闲会话
     mcp_app = mcp_server.streamable_http_app(host=host, stateless_http=True, json_response=True)
-    config = uvicorn.Config(mcp_app, host=host, port=port, log_level="warning", lifespan="on")
+    config = uvicorn.Config(
+        mcp_app, host=host, port=port, log_level="warning", log_config=None, lifespan="on"
+    )
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True, name="panhub-mcp-http")
     thread.start()
